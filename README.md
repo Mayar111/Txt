@@ -4,6 +4,7 @@ import re
 import threading
 from queue import Queue
 import sys
+import time
 
 # Constants for process access
 PROCESS_VM_READ = 0x0010
@@ -69,7 +70,11 @@ def scan_memory_chunk(memory_chunk):
 
 # Worker thread that processes memory chunks
 def memory_scan_worker(process_handle):
-    while not memory_queue.empty():
+    while True:
+        if memory_queue.empty():
+            time.sleep(1)  # Avoid busy waiting
+            continue
+        
         base_addr, size = memory_queue.get()
         try:
             buffer = ctypes.create_string_buffer(size)
@@ -137,14 +142,25 @@ def scan_process_memory(pid, num_threads=4):
     threads = []
     for _ in range(num_threads):
         t = threading.Thread(target=memory_scan_worker, args=(process_handle,))
+        t.daemon = True  # Allow threads to exit when the main program does
         t.start()
         threads.append(t)
 
-    memory_queue.join()
+    try:
+        while True:
+            # Keep scanning new memory regions in a loop
+            new_memory_regions = get_memory_regions(pid)
+            for region in new_memory_regions:
+                memory_queue.put(region)
 
-    for t in threads:
-        t.join()
-    ctypes.windll.kernel32.CloseHandle(process_handle)
+            time.sleep(5)  # Delay between scans to reduce CPU usage
+
+    except KeyboardInterrupt:
+        print("Stopping the memory scan...")
+    finally:
+        for t in threads:
+            t.join()
+        ctypes.windll.kernel32.CloseHandle(process_handle)
 
 def is_admin():
     try:
