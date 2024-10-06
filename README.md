@@ -86,6 +86,39 @@ def get_relevant_pids():
             continue
     return relevant_pids
 
+# Function to retrieve memory regions of a given process
+def get_memory_regions(pid):
+    """ Retrieves the memory regions of the specified process. """
+    memory_regions = []
+    
+    process_handle = ctypes.windll.kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not process_handle:
+        print(f"Could not open process with PID {pid}.")
+        return memory_regions
+    
+    # MEMORY_BASIC_INFORMATION structure
+    class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+        _fields_ = [("BaseAddress", ctypes.c_void_p),
+                    ("AllocationBase", ctypes.c_void_p),
+                    ("AllocationProtect", ctypes.c_ulong),
+                    ("RegionSize", ctypes.c_size_t),
+                    ("State", ctypes.c_ulong),
+                    ("Protect", ctypes.c_ulong),
+                    ("Type", ctypes.c_ulong)]
+    
+    mbi = MEMORY_BASIC_INFORMATION()
+    address = 0
+    while ctypes.windll.kernel32.VirtualQueryEx(process_handle, ctypes.c_void_p(address), ctypes.byref(mbi), ctypes.sizeof(mbi)):
+        if mbi.State == 0x1000:  # MEM_COMMIT
+            # Consider only readable regions (PAGE_READWRITE, PAGE_READONLY)
+            if mbi.Protect in (0x04, 0x02):
+                memory_regions.append((mbi.BaseAddress, mbi.RegionSize))
+        
+        address += mbi.RegionSize
+
+    ctypes.windll.kernel32.CloseHandle(process_handle)
+    return memory_regions
+
 # Main function to scan memory of automatically detected processes
 def scan_process_memory(num_threads=4):
     pids = get_relevant_pids()
