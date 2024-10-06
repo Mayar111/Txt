@@ -205,7 +205,7 @@ def is_admin():
     except:
         return False
 
-def exit_program(e):
+def exit_program(e):  # Accept the event argument
     global running
     running = False
     print("Exiting program...")
