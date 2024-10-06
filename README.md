@@ -1,5 +1,5 @@
-import psutil
 import ctypes
+import psutil
 import re
 import threading
 from queue import Queue
@@ -55,6 +55,18 @@ def memory_scan_worker(process_handle):
         finally:
             memory_queue.task_done()
 
+# Define the MEMORY_BASIC_INFORMATION structure
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
+        ("AllocationProtect", ctypes.c_ulong),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", ctypes.c_ulong),
+        ("Protect", ctypes.c_ulong),
+        ("Type", ctypes.c_ulong)
+    ]
+
 # Get memory regions to scan (only committed, readable regions)
 def get_memory_regions(pid):
     process = psutil.Process(pid)
@@ -65,7 +77,7 @@ def get_memory_regions(pid):
 
         memory_regions = []
         address = 0
-        mbi = ctypes.wintypes.MEMORY_BASIC_INFORMATION()
+        mbi = MEMORY_BASIC_INFORMATION()
 
         while ctypes.windll.kernel32.VirtualQueryEx(handle, ctypes.c_void_p(address), ctypes.byref(mbi), ctypes.sizeof(mbi)):
             if mbi.State == 0x1000 and mbi.Protect == 0x04:  # MEM_COMMIT and PAGE_READWRITE
