@@ -129,7 +129,7 @@ def scan_process_memory(num_threads=4):
 
     for pid in pids:
         print(f"Starting memory scan for PID {pid}")
-        memory_regions = get_memory_regions(pid)
+        memory_regions = get_memory_regions(pid)  # <-- Corrected here
         if not memory_regions:
             print(f"[PID {pid}] No valid memory regions found.")
             continue
@@ -151,7 +151,7 @@ def scan_process_memory(num_threads=4):
         try:
             while running:
                 # Keep scanning new memory regions in a loop
-                new_memory_regions = get_memory_regions(pid)
+                new_memory_regions = get_memory_regions(pid)  # <-- Corrected here
                 for region in new_memory_regions:
                     print(f"[PID {pid}] Adding memory region to queue: {region}")
                     memory_queue.put(region)
